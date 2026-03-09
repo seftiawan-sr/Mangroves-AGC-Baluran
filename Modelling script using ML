@@ -1,0 +1,141 @@
+#Modelling script using ML
+
+import pandas as pd
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.model_selection import train_test_split, cross_val_score
+from sklearn.metrics import mean_squared_error, r2_score
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.linear_model import LinearRegression
+import os
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.svm import SVR
+from sklearn.tree import DecisionTreeRegressor
+from sklearn.neighbors import KNeighborsRegressor
+from sklearn.ensemble import GradientBoostingRegressor
+
+# Make sure df is already defined
+df = pd.read_csv('Baluran_data_revision.csv')
+
+X = df[['b6_B','GNDVI_rev','HA']] #'b6_B','GNDVI_rev','HA'
+y = df['AGC']
+
+# Split into train and test
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
+
+# Create and train the model
+model = RandomForestRegressor(n_estimators=1000, random_state=42)
+model.fit(X_train, y_train)
+
+# Create and train the SVM model with a non-linear (RBF) kernel
+#model = SVR(kernel='rbf', C=100, epsilon=0.1, gamma='scale')  # You can also adjust C, epsilon, and gamma if needed for tuning
+#model.fit(X_train, y_train)
+
+# Create and train the Decision Tree model with custom parameters
+#model = DecisionTreeRegressor(
+    #random_state=42,
+    #max_depth=10,             # Limits the tree depth to prevent overfitting
+    #min_samples_split=5,      # Minimum number of samples required to split an internal node
+    #min_samples_leaf=3        # Minimum number of samples required to be at a leaf node
+#)
+#model.fit(X_train, y_train)
+
+# Create and train the k-NN model
+#model = KNeighborsRegressor(n_neighbors=7, weights='distance', algorithm='auto') #example with tuning
+#model.fit(X_train, y_train)
+
+# Create and train the optimized Gradient Boosting model
+#model = GradientBoostingRegressor(
+    #n_estimators=200,        # More trees than default (100) for better learning
+    #learning_rate=0.05,      # Smaller learning rate for better generalization
+    #max_depth=4,             # Controls the complexity of each tree
+    #min_samples_split=5,     # Minimum samples to split an internal node
+    #min_samples_leaf=3,      # Minimum samples required at a leaf node
+    #random_state=42
+#)
+#model.fit(X_train, y_train)
+
+# Predictions
+y_train_pred = model.predict(X_train)
+y_test_pred = model.predict(X_test)
+
+# Metrics
+r2_train = r2_score(y_train, y_train_pred)
+r2_test = r2_score(y_test, y_test_pred)
+rmse_test = np.sqrt(mean_squared_error(y_test, y_test_pred))
+
+print("Training R² Score:", r2_train)
+print("Testing R² Score:", r2_test)
+print("RMSE Testing:", rmse_test)
+
+# Cross-validation
+scores = cross_val_score(model, X, y, cv=5, scoring='neg_mean_squared_error')
+rmse_scores = np.sqrt(-scores)
+avg_rmse_cv = np.mean(rmse_scores)
+print("Average RMSE CV 5-fold:", np.mean(avg_rmse_cv))
+
+# Plotting function
+def plot_results(y_true, y_pred, dataset_type, r2_rf=None, rmse=None):
+    y_pred_reshaped = y_pred.reshape(-1, 1)
+
+    # Fit linear regression
+    lr = LinearRegression()
+    lr.fit(y_pred_reshaped, y_true)
+    line = lr.predict(y_pred_reshaped)
+
+    r2_linreg = r2_score(y_true, line)
+    slope = lr.coef_[0]
+    intercept = lr.intercept_
+
+    # Plot
+    plt.figure(figsize=(8, 6))
+    sns.scatterplot(x=y_true, y=y_pred, alpha=0.6, s=75)
+    plt.plot([y_true.min(), y_true.max()], [y_true.min(), y_true.max()], 'k-')
+    # , label='1:1 Line'
+
+    #plt.title(f"{dataset_type} Set: Random Forest Model")
+    plt.xlabel("Actual AGC (Mg C Ha⁻¹)", fontsize=17)
+    plt.ylabel("Predicted AGC (Mg C Ha⁻¹)", fontsize=17)
+
+    # Text box with metrics
+    #plt.text(
+        #0.05, 0.95,
+        #f'R² = {r2_rf:.2f}\n 5-fold CV RMSE = {avg_rmse_cv:.2f}\ny = {slope:.2f}x + {intercept:.2f}',
+        #transform=plt.gca().transAxes,
+        #verticalalignment='top',
+        #fontsize=10,
+        #bbox=dict(boxstyle="round,pad=0.3", edgecolor='gray', facecolor='white')
+    #)
+    #(R² = {r2_linreg:.2f}
+
+# Text box with metrics
+    plt.text(
+        0.05, 0.95,
+        f'R² Testing = {r2_rf:.2f}\n5-fold CV RMSE = {avg_rmse_cv:.2f}',
+        transform=plt.gca().transAxes,
+        verticalalignment='top',
+        fontsize=17,
+        bbox=dict(boxstyle="round,pad=0.3", edgecolor='gray', facecolor='white')
+    )
+    #(R² = {r2_linreg:.2f}
+    
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+
+    # Save the plot
+    #os.makedirs("plots_AGC_baluran_rev", exist_ok=True)
+    #filename = f"plots_AGC_baluran_rev/{dataset_type.lower()}_scatter_plot.png"
+    #plt.savefig(filename, dpi=300)
+    #print(f"{dataset_type} plot saved to: {filename}")
+
+    #plt.show()
+
+      
+# Plot training and testing results
+plot_results(y_train.values, y_train_pred, "Training", r2_rf=r2_train, rmse=np.sqrt(mean_squared_error(y_train, y_train_pred)))
+plot_results(y_test.values, y_test_pred, "Testing", r2_rf=r2_test, rmse=rmse_test)
+
+# Save the model to a file
+#joblib.dump(model, 'my_random_forest_model.pkl')
