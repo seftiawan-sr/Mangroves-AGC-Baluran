@@ -18,7 +18,7 @@ from sklearn.ensemble import GradientBoostingRegressor
 # Make sure df is already defined
 df = pd.read_csv('Baluran_data_revision.csv')
 
-X = df[['b6_B','GNDVI_rev','HA']] #'b6_B','GNDVI_rev','HA'
+X = df[['b7_B','GNDVI_rev','HA']] #'b7_B','GNDVI_rev','HA'
 y = df['AGC']
 
 # Split into train and test
