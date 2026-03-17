@@ -1,0 +1,221 @@
+#Basic statistical analysis
+import pandas as pd
+import numpy as np
+
+df = pd.read_csv('Baluran_data_revision2.csv')
+print(df.head())
+
+# THIS IS NORMALITY DATA TEST CELL
+
+import pandas as pd
+import numpy as np
+from scipy.stats import shapiro, normaltest
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+results = []
+
+for col in df.columns:
+    data = df[col].dropna()  # remove NaNs
+
+    # Check if data has variation
+    if data.nunique() <= 1:
+        results.append({
+            'Dataset': col,
+            'Shapiro_p': None,
+            'Shapiro_Normal': "Constant Data",
+            'Dagostino_p': None,
+            'Dagostino_Normal': "Constant Data"
+        })
+        continue
+
+    # Shapiro-Wilk test
+    stat_shapiro, p_shapiro = shapiro(data)
+
+    # D’Agostino-Pearson test
+    stat_dagostino, p_dagostino = normaltest(data)
+
+    results.append({
+        'Dataset': col,
+        'Shapiro_p': p_shapiro,
+        'Shapiro_Normal': p_shapiro > 0.05,
+        'Dagostino_p': p_dagostino,
+        'Dagostino_Normal': p_dagostino > 0.05
+    })
+
+# Convert results to DataFrame
+results_df = pd.DataFrame(results)
+
+print(results_df)
+
+# Save results to Excel
+results_df.to_excel("AGC_normality_test_results_revision2.xlsx", index=False)
+
+# THIS IS NORMALITY DATA TEST CELL
+
+import pandas as pd
+import numpy as np
+from scipy.stats import shapiro, normaltest
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+results = []
+
+for col in df.columns:
+    data = df[col].dropna()  # remove NaNs
+
+    # Check if data has variation
+    if data.nunique() <= 1:
+        results.append({
+            'Dataset': col,
+            'Shapiro_p': None,
+            'Shapiro_Normal': "Constant Data",
+            'Dagostino_p': None,
+            'Dagostino_Normal': "Constant Data"
+        })
+        continue
+
+    # Shapiro-Wilk test
+    stat_shapiro, p_shapiro = shapiro(data)
+
+    # D’Agostino-Pearson test
+    stat_dagostino, p_dagostino = normaltest(data)
+
+    results.append({
+        'Dataset': col,
+        'Shapiro_p': p_shapiro,
+        'Shapiro_Normal': p_shapiro > 0.05,
+        'Dagostino_p': p_dagostino,
+        'Dagostino_Normal': p_dagostino > 0.05
+    })
+
+# Convert results to DataFrame
+results_df = pd.DataFrame(results)
+
+print(results_df)
+
+# Save results to Excel
+results_df.to_excel("AGC_normality_test_results_revision2.xlsx", index=False)
+
+print("Results saved to AGC_normality_test_results_revision.xlsx")
+
+#Spearman variable test against field measurement variables
+
+import pandas as pd
+import numpy as np
+from scipy.stats import spearmanr
+
+# Load dataset
+df = pd.read_csv('Baluran_data_revision2.csv')
+print(df.head())
+
+# Variables to test against AGC
+variables = [
+    'CC',"HA"
+]
+
+results = []
+
+for var in variables:
+    
+    # Remove missing values
+    data = df[['AGC', var]].dropna()
+
+    # Skip if no variation
+    if data[var].nunique() <= 1:
+        results.append({
+            'Variable': var,
+            'Spearman_r': None,
+            'p_value': None
+        })
+        continue
+
+    # Spearman correlation
+    corr, pval = spearmanr(data['AGC'], data[var])
+
+    results.append({
+        'Variable': var,
+        'Spearman_r': corr,
+        'p_value': pval
+    })
+
+# Convert results to DataFrame
+results_df = pd.DataFrame(results)
+
+# Sort correlations from strongest to weakest
+results_df = results_df.sort_values(by='Spearman_r', ascending=False)
+
+# Display results
+print(results_df)
+
+# Save results to Excel
+results_df.to_excel("AGC_spearman_correlation_results_revision2_field.xlsx", index=False)
+
+print("Results saved to AGC_spearman_correlation_results_revision2_field.xlsx")
+
+#VIF calculation
+
+import pandas as pd
+from statsmodels.stats.outliers_influence import variance_inflation_factor
+from scipy.stats import spearmanr
+
+# Load dataset
+df = pd.read_csv('Baluran_data_revision2.csv')
+
+# List of all predictors
+predictors = [
+    'b1_rev2','b2_rev2','b3_rev2','b4_rev2','b5_rev2','b6_rev2','b7_rev2',
+    'GNDVI_rev2','RVI_rev2','TNDVI_rev2','TSAVI_rev2',
+    'NDVI_rev2','SAVI_rev2','MCARI_rev2',
+    'CC','HA'
+]
+
+# Drop missing values
+data = df[predictors + ['AGC']].dropna().copy()
+
+# Calculate Spearman correlation of each predictor with AGC
+spearman_corr = {}
+for var in predictors:
+    corr, _ = spearmanr(data['AGC'], data[var])
+    spearman_corr[var] = abs(corr)  # use absolute value
+
+# Keep only predictors (exclude AGC) for VIF calculation
+X = data[predictors].copy()
+
+def calculate_vif(df):
+    vif_data = pd.DataFrame()
+    vif_data['Variable'] = df.columns
+    vif_data['VIF'] = [variance_inflation_factor(df.values, i) for i in range(df.shape[1])]
+    return vif_data
+
+# Iteratively remove variables with highest VIF but keep higher Spearman correlation
+max_vif_threshold = 6
+iteration = 0
+
+while True:
+    iteration += 1
+    vif_df = calculate_vif(X)
+    max_vif = vif_df['VIF'].max()
+    
+    if max_vif <= max_vif_threshold:
+        break
+    
+    # Variables with max VIF
+    max_vif_vars = vif_df[vif_df['VIF'] == max_vif]['Variable'].tolist()
+    
+    # If multiple, drop the one with lowest Spearman correlation
+    drop_var = min(max_vif_vars, key=lambda v: spearman_corr[v])
+    
+    print(f"Iteration {iteration}: Dropping {drop_var} with VIF={max_vif:.2f} and Spearman_r={spearman_corr[drop_var]:.2f}")
+    X = X.drop(columns=[drop_var])
+
+# Final VIF
+final_vif = calculate_vif(X)
+print("\nFinal set of variables with VIF <= 10:")
+print(final_vif)
+
+# Save final results
+#final_vif.to_excel("AGC_VIF_selected_variables_spearman.xlsx", index=False)
+#print("\nSelected variables saved to AGC_VIF_selected_variables_spearman.xlsx")
+
+print("Results saved to AGC_normality_test_results_revision.xlsx")
