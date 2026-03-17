@@ -1,4 +1,6 @@
-# Feature importance
+#FEATURE IMPORTANCE OF THREE VARIABLES
+#RVI, TSAVI, HA
+
 import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
@@ -6,8 +8,8 @@ import joblib
 import os
 
 # Load dataset
-df = pd.read_csv('Baluran_data_revision.csv')
-X = df[['b6_B','GNDVI_rev','HA']]
+df = pd.read_csv('Baluran_data_revision2.csv')
+X = df[['TSAVI_rev2','RVI_rev2','HA']]
 y = df['AGC']
 
 # Train-test split
@@ -23,7 +25,7 @@ rf_model.fit(X_train, y_train)
 
 # Feature importances
 importances = rf_model.feature_importances_ * 100  # convert to percentage
-feature_names = ['RE3', 'GNDVI', 'Tree height']  # renamed for clarity
+feature_names = ['TSAVI', 'RVI','Tree Height']  # renamed for clarity
 
 # Sort features by importance
 indices = np.argsort(importances)[::-1]
@@ -53,7 +55,7 @@ plt.grid(axis='y', linestyle='--', alpha=0.5)
 # Annotate percentage values on top of bars
 for bar in bars:
     height = bar.get_height()
-    plt.text(bar.get_x() + bar.get_width()/2.0, height + 0.5, f"{height:.0f}%",
+    plt.text(bar.get_x() + bar.get_width()/2.0, height + 0.25, f"{height:.0f}%",
              ha='center', va='bottom', fontsize=12)
 
 # Save figure
