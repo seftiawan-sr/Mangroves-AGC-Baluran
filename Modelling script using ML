@@ -1,3 +1,5 @@
+#Three variables: TSAVI, RVI, HA
+
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -17,10 +19,9 @@ from scipy.stats import linregress
 # ------------------------------------------------
 # Load dataset
 # ------------------------------------------------
+df = pd.read_csv('Baluran_data_revision2.csv')
 
-df = pd.read_csv('Baluran_data_revision.csv')
-
-X = df[['b6_B','GNDVI_rev','HA']]
+X = df[['TSAVI_rev2', 'RVI_rev2', 'HA']]
 y = df['AGC']
 
 # Train-test split
@@ -31,57 +32,26 @@ X_train, X_test, y_train, y_test = train_test_split(
 # ------------------------------------------------
 # GLOBAL AXIS LIMITS
 # ------------------------------------------------
-
 global_min = y.min()
 global_max = y.max()
 
 # ------------------------------------------------
 # Define models
 # ------------------------------------------------
-
 models = {
-
-    "RF": RandomForestRegressor(
-        n_estimators=1000,
-        random_state=42
-    ),
-
-    "SVM": SVR(
-        kernel='rbf',
-        C=100,
-        epsilon=0.1,
-        gamma='scale'
-    ),
-
-    "DT": DecisionTreeRegressor(
-        random_state=42,
-        max_depth=10,
-        min_samples_split=5,
-        min_samples_leaf=3
-    ),
-
-    "kNN": KNeighborsRegressor(
-        n_neighbors=7,
-        weights='distance'
-    ),
-
-    "GB": GradientBoostingRegressor(
-        n_estimators=200,
-        learning_rate=0.05,
-        max_depth=4,
-        min_samples_split=5,
-        min_samples_leaf=3,
-        random_state=42
-    )
+    "RF": RandomForestRegressor(n_estimators=1000, random_state=42),
+    "SVM": SVR(kernel='rbf', C=100, epsilon=0.1, gamma='scale'),
+    "DT": DecisionTreeRegressor(random_state=42, max_depth=10, min_samples_split=5, min_samples_leaf=3),
+    "kNN": KNeighborsRegressor(n_neighbors=7, weights='distance'),
+    "GB": GradientBoostingRegressor(n_estimators=200, learning_rate=0.05, max_depth=4, min_samples_split=5, min_samples_leaf=3, random_state=42)
 }
 
 # Create folder for plots
-os.makedirs("model_scatter_plots", exist_ok=True)
+#os.makedirs("model_scatter_plots_new", exist_ok=True)
 
 # ------------------------------------------------
 # Plot function
 # ------------------------------------------------
-
 def plot_two_panel(y_train, y_train_pred, y_test, y_test_pred,
                    r2_train, r2_test, rmse_cv, model_name):
 
@@ -97,118 +67,57 @@ def plot_two_panel(y_train, y_train_pred, y_test, y_test_pred,
         slope, intercept, r_value, p_value, std_err = linregress(y_true, y_pred)
 
         # Format p-value
-        if p_value < 0.001:
-            p_text = "p < 0.001"
-        else:
-            p_text = f"p = {p_value:.3f}"
+        p_text = "p < 0.001" if p_value < 0.001 else f"p = {p_value:.3f}"
 
         # Scatter plot
-        ax.scatter(
-            y_true,
-            y_pred,
-            s=85,
-            alpha=0.85,
-            edgecolor='black'
-        )
+        ax.scatter(y_true, y_pred, s=85, alpha=0.85, edgecolor='black')
 
         # 1:1 line
-        ax.plot(
-            [global_min, global_max],
-            [global_min, global_max],
-            linewidth=2
-        )
+        ax.plot([global_min, global_max], [global_min, global_max], linewidth=2)
 
         # Regression line if significant
         if p_value < 0.05:
-
-            x_vals = np.linspace(global_min, global_max,100)
+            x_vals = np.linspace(global_min, global_max, 100)
             y_vals = slope*x_vals + intercept
-
-            ax.plot(
-                x_vals,
-                y_vals,
-                '--',
-                linewidth=2
-            )
+            ax.plot(x_vals, y_vals, '--', linewidth=2)
 
         # Equal axis scaling
         ax.set_xlim(global_min, global_max)
         ax.set_ylim(global_min, global_max)
         ax.set_aspect('equal', adjustable='box')
-
         ax.set_xlabel("Observed AGC (Mg C ha⁻¹)", fontsize=15)
         ax.set_ylabel("Predicted AGC (Mg C ha⁻¹)", fontsize=15)
 
         # Panel label
-        ax.text(
-            0.03,0.95,label,
-            transform=ax.transAxes,
-            fontsize=16,
-            fontweight='bold',
-            verticalalignment='top'
-        )
+        ax.text(0.03,0.95,label, transform=ax.transAxes, fontsize=16, fontweight='bold', verticalalignment='top')
 
-        # Metrics box (BOTTOM RIGHT, slightly left)
+        # Metrics box
         if show_cv:
-
-            metrics = (
-                f"$R^2$ = {r2_val:.2f}\n"
-                f"5-CV RMSE = {rmse_cv:.2f}\n"
-                f"{p_text}"
-            )
-
+            metrics = f"$R^2$ = {r2_val:.2f}\n5-CV RMSE = {rmse_cv:.2f}\n{p_text}"
         else:
+            metrics = f"$R^2$ = {r2_val:.2f}\n{p_text}"
 
-            metrics = (
-                f"$R^2$ = {r2_val:.2f}\n"
-                f"{p_text}"
-            )
-
-        ax.text(
-            0.58,0.15,
-            metrics,
-            transform=ax.transAxes,
-            fontsize=13,
-            bbox=dict(
-                boxstyle="round",
-                facecolor="white",
-                edgecolor="black"
-            )
-        )
+        ax.text(0.58,0.15, metrics, transform=ax.transAxes, fontsize=13,
+                bbox=dict(boxstyle="round", facecolor="white", edgecolor="black"))
 
         ax.tick_params(labelsize=13)
-
-        ax.grid(
-            True,
-            linestyle="--",
-            alpha=0.5
-        )
+        ax.grid(True, linestyle="--", alpha=0.5)
 
     plt.suptitle(model_name, fontsize=18)
-
     plt.tight_layout()
 
-    filename = f"model_scatter_plots/{model_name}_scatter.png"
-
-    plt.savefig(
-        filename,
-        dpi=600,
-        bbox_inches="tight"
-    )
-
-    print(f"Saved plot: {filename}")
-
+    #filename = f"model_scatter_plots_new/{model_name}_scatter.png"
+    #plt.savefig(filename, dpi=600, bbox_inches="tight")
+    #print(f"Saved plot: {filename}")
     plt.show()
 
 
 # ------------------------------------------------
 # Train and evaluate models
 # ------------------------------------------------
-
 results = []
 
 for name, model in models.items():
-
     print("\n=========================")
     print("Model:", name)
 
@@ -223,14 +132,7 @@ for name, model in models.items():
     rmse_train = np.sqrt(mean_squared_error(y_train, y_train_pred))
     rmse_test = np.sqrt(mean_squared_error(y_test, y_test_pred))
 
-    scores = cross_val_score(
-        model,
-        X,
-        y,
-        cv=5,
-        scoring='neg_mean_squared_error'
-    )
-
+    scores = cross_val_score(model, X, y, cv=5, scoring='neg_mean_squared_error')
     rmse_cv = np.mean(np.sqrt(-scores))
 
     print("Training R²:", r2_train)
@@ -240,28 +142,15 @@ for name, model in models.items():
 
     results.append([name, r2_test, rmse_test, rmse_cv])
 
-    plot_two_panel(
-        y_train,
-        y_train_pred,
-        y_test,
-        y_test_pred,
-        r2_train,
-        r2_test,
-        rmse_cv,
-        name
-    )
+    plot_two_panel(y_train, y_train_pred, y_test, y_test_pred,
+                   r2_train, r2_test, rmse_cv, name)
 
 # ------------------------------------------------
 # Results table
 # ------------------------------------------------
-
-results_df = pd.DataFrame(
-    results,
-    columns=["Model","R2_test","RMSE_test","CV_RMSE"]
-)
-
+results_df = pd.DataFrame(results, columns=["Model","R2_test","RMSE_test","CV_RMSE"])
 print("\nModel comparison:")
 print(results_df)
 
 # Optional: save best model
-# joblib.dump(models["RF"], 'Baluran_RF_AGC_model_revision.pkl')
+joblib.dump(models["RF"], 'Baluran_RF_AGC_model_revision3.pkl')
