@@ -1,112 +1,43 @@
-#Evaluate spatial autocorrelation
+#SPATIAL AUTOCORRELATION
 
+import pandas as pd
 import geopandas as gpd
 from libpysal.weights import KNN
 from esda.moran import Moran
 
-# Create residuals (Observed - Predicted)
-df['Predicted_AGC'] = model.predict(X)
+# -----------------------------
+# Rebuild predictors properly
+# -----------------------------
+X_full = df[['TSAVI_rev2', 'RVI_rev2', 'HA']]
+
+# Use trained RF model
+rf_model = models["RF"]
+
+# Predict AGC for all sample points
+df['Predicted_AGC'] = rf_model.predict(X_full)
+
+# Calculate residuals
 df['Residuals'] = df['AGC'] - df['Predicted_AGC']
 
-# Convert dataframe to GeoDataFrame
+# -----------------------------
+# Convert to GeoDataFrame
+# -----------------------------
 gdf = gpd.GeoDataFrame(
     df,
     geometry=gpd.points_from_xy(df['Longitude'], df['Latitude']),
     crs="EPSG:4326"
 )
 
-# Create spatial weights (k-nearest neighbors)
+# -----------------------------
+# Create KNN spatial weights
+# -----------------------------
 w = KNN.from_dataframe(gdf, k=8)
 w.transform = 'r'
 
-# Calculate Moran's I
+# -----------------------------
+# Moran's I
+# -----------------------------
 moran = Moran(gdf['Residuals'], w)
 
 print("Moran's I:", moran.I)
 print("p-value:", moran.p_sim)
-
-#Create a plot of spatial autocorrelation
-
-from esda.moran import Moran
-from splot.esda import moran_scatterplot
-
-import matplotlib.pyplot as plt
-
-moran_scatterplot(moran)
-plt.title("Moran's I Scatterplot of Model Residuals")
-plt.show()
-
-#Checking the residual value from spatial autocorrelation
-
-#Spatial autocorrelation
-
-import geopandas as gpd
-from libpysal.weights import KNN
-from esda.moran import Moran
-from splot.esda import moran_scatterplot
-import numpy as np
-import matplotlib.pyplot as plt
-import pandas as pd
-
-# -------------------------------
-# 1. Add predictions and residuals
-# -------------------------------
-df['Predicted_AGC'] = model.predict(X)
-
-# Create residuals column
-df['Residuals'] = df['AGC'] - df['Predicted_AGC']
-
-# -------------------------------
-# 2. Split residuals into train/test
-# -------------------------------
-# Make sure the indices match
-train_indices = X_train.index
-test_indices = X_test.index
-
-df.loc[train_indices, 'Residuals_Train'] = df.loc[train_indices, 'Residuals']
-df.loc[test_indices, 'Residuals_Test'] = df.loc[test_indices, 'Residuals']
-
-# -------------------------------
-# 3. Compute mean and SD
-# -------------------------------
-residuals_mean_train = np.mean(df.loc[train_indices, 'Residuals_Train'])
-residuals_std_train = np.std(df.loc[train_indices, 'Residuals_Train'])
-
-residuals_mean_test = np.mean(df.loc[test_indices, 'Residuals_Test'])
-residuals_std_test = np.std(df.loc[test_indices, 'Residuals_Test'])
-
-print(f"Training Residuals: Mean = {residuals_mean_train:.4f}, SD = {residuals_std_train:.4f}")
-print(f"Testing Residuals:  Mean = {residuals_mean_test:.4f}, SD = {residuals_std_test:.4f}")
-
-# -------------------------------
-# 4. Convert to GeoDataFrame for spatial analysis
-# -------------------------------
-gdf = gpd.GeoDataFrame(
-    df,
-    geometry=gpd.points_from_xy(df['Longitude'], df['Latitude']),
-    crs="EPSG:4326"
-)
-
-# -------------------------------
-# 5. Spatial weights (k-nearest neighbors)
-# -------------------------------
-w = KNN.from_dataframe(gdf, k=8)
-w.transform = 'r'
-
-# -------------------------------
-# 6. Moran's I for residuals
-# -------------------------------
-moran_all = Moran(gdf['Residuals'], w)
-moran_train = Moran(gdf.loc[train_indices, 'Residuals_Train'], w)
-moran_test = Moran(gdf.loc[test_indices, 'Residuals_Test'], w)
-
-print("\nMoran's I (All Residuals):", moran_all.I, "p-value:", moran_all.p_sim)
-print("Moran's I (Training Residuals):", moran_train.I, "p-value:", moran_train.p_sim)
-print("Moran's I (Testing Residuals):", moran_test.I, "p-value:", moran_test.p_sim)
-
-# -------------------------------
-# 7. Moran scatterplot (All residuals)
-# -------------------------------
-fig, ax = moran_scatterplot(moran_all)
-plt.title("Moran's I Scatterplot of Residuals (All Data)")
-plt.show()
