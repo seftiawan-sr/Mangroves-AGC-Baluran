@@ -1,0 +1,128 @@
+#TUNING CURVES
+
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+
+from sklearn.model_selection import validation_curve
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
+from sklearn.svm import SVR
+from sklearn.tree import DecisionTreeRegressor
+from sklearn.neighbors import KNeighborsRegressor
+
+# LOAD DATA
+df = pd.read_csv("Baluran_data_revision2.csv")
+
+X = df[['TSAVI_rev2', 'RVI_rev2', 'HA']]
+y = df['AGC']
+
+
+# TUNING SETTINGS
+tuning_settings = {
+    "RF": {
+        "model": RandomForestRegressor(random_state=42),
+        "param_name": "n_estimators",
+        "param_range": [10, 50, 100, 200, 400, 600, 800, 1000]
+    },
+    "SVM": {
+        "model": SVR(kernel='rbf', epsilon=0.1, gamma='scale'),
+        "param_name": "C",
+        "param_range": [0.1, 1, 10, 50, 100, 200, 500]
+    },
+    "DT": {
+        "model": DecisionTreeRegressor(
+            random_state=42,
+            min_samples_split=5,
+            min_samples_leaf=3
+        ),
+        "param_name": "max_depth",
+        "param_range": [2, 3, 4, 5, 6, 8, 10, 12, 15]
+    },
+    "kNN": {
+        "model": KNeighborsRegressor(weights='distance'),
+        "param_name": "n_neighbors",
+        "param_range": [1, 3, 5, 7, 9, 11, 13, 15]
+    },
+    "GB": {
+        "model": GradientBoostingRegressor(
+            learning_rate=0.05,
+            max_depth=4,
+            min_samples_split=5,
+            min_samples_leaf=3,
+            random_state=42
+        ),
+        "param_name": "n_estimators",
+        "param_range": [50, 100, 150, 200, 300, 400, 500]
+    }
+}
+
+
+# PLOT
+fig, axes = plt.subplots(2, 3, figsize=(18, 10))
+axes = axes.flatten()
+
+for i, (name, setting) in enumerate(tuning_settings.items()):
+    model = setting["model"]
+    param_name = setting["param_name"]
+    param_range = setting["param_range"]
+
+    train_scores, valid_scores = validation_curve(
+        estimator=model,
+        X=X,
+        y=y,
+        param_name=param_name,
+        param_range=param_range,
+        cv=5,
+        scoring="neg_mean_squared_error",
+        n_jobs=-1
+    )
+
+    train_rmse = np.sqrt(-train_scores)
+    valid_rmse = np.sqrt(-valid_scores)
+
+    train_mean = train_rmse.mean(axis=1)
+    train_std = train_rmse.std(axis=1)
+    valid_mean = valid_rmse.mean(axis=1)
+    valid_std = valid_rmse.std(axis=1)
+
+    ax = axes[i]
+
+    ax.plot(param_range, train_mean, marker='o', linewidth=2, label='Training RMSE')
+    ax.plot(param_range, valid_mean, marker='s', linewidth=2, label='Validation RMSE')
+
+    ax.fill_between(param_range,
+                    train_mean - train_std,
+                    train_mean + train_std,
+                    alpha=0.2)
+    ax.fill_between(param_range,
+                    valid_mean - valid_std,
+                    valid_mean + valid_std,
+                    alpha=0.2)
+
+    ax.set_title(name, fontsize=14, fontweight='bold')
+    ax.set_xlabel(param_name, fontsize=12)
+    ax.set_ylabel("RMSE (Mg C ha⁻¹)", fontsize=12)
+    ax.grid(True, linestyle="--", alpha=0.5)
+
+    #Legend position (RF only top-left)
+    if name == "RF":
+        ax.legend(loc='upper left', fontsize=10)
+    else:
+        ax.legend(fontsize=10)
+
+    # Log scale for SVM
+    if name == "SVM":
+        ax.set_xscale("log")
+
+# Remove empty subplot
+if len(tuning_settings) < len(axes):
+    fig.delaxes(axes[-1])
+
+plt.tight_layout()
+
+# SAVE IMAGE
+plt.savefig("Tuning_Curves_ML_models.png", dpi=600, bbox_inches='tight')
+
+print("Tuning curves saved as PNG")
+
+plt.show()
