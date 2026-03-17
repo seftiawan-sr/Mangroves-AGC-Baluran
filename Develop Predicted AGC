@@ -1,0 +1,187 @@
+#RF-Predicted AGC
+
+import pandas as pd
+import numpy as np
+import rasterio
+import joblib
+import geopandas as gpd
+from scipy.spatial import cKDTree
+
+# =========================
+# 1. FILE PATHS
+# =========================
+ref_raster_path = "RVI_rev20_clip.tif"
+rvi_raster_path = "RVI_rev20_clip.tif"
+tsavi_raster_path = "TSAVI_rev20_clip.tif"
+csv_path = "Height.csv"
+model_path = "Baluran_RF_AGC_model_revision3.pkl"
+
+height_raster_out = "HA_rev20.tif"
+prediction_out = "rf_prediction_rev20_3var.tif"
+
+# =========================
+# 2. LOAD REFERENCE RASTER
+# =========================
+with rasterio.open(ref_raster_path) as ref:
+    ref_profile = ref.profile.copy()
+    ref_transform = ref.transform
+    ref_crs = ref.crs
+    ref_width = ref.width
+    ref_height = ref.height
+    ref_shape = (ref_height, ref_width)
+    ref_masked = ref.read(1, masked=True)
+    ref_valid_mask = ~ref_masked.mask
+
+print("✅ Reference raster loaded")
+print("Shape:", ref_shape)
+print("CRS:", ref_crs)
+
+# =========================
+# 3. LOAD CSV DATA
+# =========================
+df = pd.read_csv(csv_path)
+
+x_col = "X"
+y_col = "Y"
+height_col = "HA"
+
+required_cols = [x_col, y_col, height_col]
+missing_cols = [c for c in required_cols if c not in df.columns]
+if missing_cols:
+    raise ValueError(f"Missing columns in CSV file: {missing_cols}")
+
+df = df.dropna(subset=required_cols).copy()
+print(f"✅ CSV loaded: {len(df)} valid points")
+
+# =========================
+# 4. CONVERT COORDINATES TO RASTER CRS
+# =========================
+# Assumes Height.csv coordinates are in EPSG:4326
+gdf = gpd.GeoDataFrame(
+    df,
+    geometry=gpd.points_from_xy(df[x_col], df[y_col]),
+    crs="EPSG:4326"
+)
+
+gdf = gdf.to_crs(ref_crs)
+gdf["X_proj"] = gdf.geometry.x
+gdf["Y_proj"] = gdf.geometry.y
+df = pd.DataFrame(gdf.drop(columns="geometry"))
+
+print("✅ Point coordinates reprojected to raster CRS")
+print(df[[x_col, y_col, "X_proj", "Y_proj"]].head())
+
+x_col = "X_proj"
+y_col = "Y_proj"
+
+# =========================
+# 5. CREATE GRID CELL CENTERS
+# =========================
+rows, cols = np.meshgrid(
+    np.arange(ref_height),
+    np.arange(ref_width),
+    indexing="ij"
+)
+
+xs, ys = rasterio.transform.xy(ref_transform, rows, cols, offset="center")
+grid_x = np.array(xs)
+grid_y = np.array(ys)
+grid_points = np.column_stack((grid_x.ravel(), grid_y.ravel()))
+
+# =========================
+# 6. IDW FUNCTION
+# =========================
+def idw_interpolation(xy_points, values, xi, power=2, k=8):
+    tree = cKDTree(xy_points)
+    distances, indices = tree.query(xi, k=k)
+
+    if k == 1:
+        distances = distances[:, np.newaxis]
+        indices = indices[:, np.newaxis]
+
+    distances = np.where(distances == 0, 1e-12, distances)
+    weights = 1.0 / (distances ** power)
+
+    weighted_sum = np.sum(weights * values[indices], axis=1)
+    weight_sum = np.sum(weights, axis=1)
+
+    return weighted_sum / weight_sum
+
+# =========================
+# 7. INTERPOLATE HA
+# =========================
+point_xy = df[[x_col, y_col]].values.astype(float)
+height_values = df[height_col].values.astype(float)
+
+print("🔄 Interpolating HA...")
+height_interp = idw_interpolation(point_xy, height_values, grid_points, power=2, k=8)
+height_raster = height_interp.reshape(ref_shape).astype(np.float32)
+
+height_raster[~ref_valid_mask] = np.nan
+
+# =========================
+# 8. SAVE INTERPOLATED HA RASTER
+# =========================
+out_profile = ref_profile.copy()
+out_profile.update(dtype="float32", count=1, compress="lzw", nodata=np.nan)
+
+with rasterio.open(height_raster_out, "w", **out_profile) as dst:
+    dst.write(height_raster, 1)
+
+print(f"✅ HA raster saved: {height_raster_out}")
+
+# =========================
+# 9. LOAD TSAVI AND RVI
+# =========================
+with rasterio.open(tsavi_raster_path) as src:
+    tsavi = src.read(1).astype(np.float32)
+
+with rasterio.open(rvi_raster_path) as src:
+    rvi = src.read(1).astype(np.float32)
+
+print("✅ TSAVI and RVI loaded")
+
+# =========================
+# 10. LOAD RF MODEL
+# =========================
+model = joblib.load(model_path)
+print("✅ RF model loaded")
+
+# =========================
+# 11. CREATE VALID MASK
+# =========================
+valid_mask = (
+    np.isfinite(tsavi) &
+    np.isfinite(rvi) &
+    np.isfinite(height_raster) &
+    ref_valid_mask
+)
+
+print("Valid pixels for prediction:", np.sum(valid_mask))
+
+# =========================
+# 12. STACK VARIABLES
+# ORDER MUST MATCH TRAINING MODEL:
+# TSAVI_rev2, RVI_rev2, HA
+# =========================
+X = np.stack([tsavi, rvi, height_raster], axis=-1)
+
+prediction = np.full(ref_shape, np.nan, dtype=np.float32)
+
+X_valid = X[valid_mask]
+
+print("⚙️ Running RF prediction...")
+y_pred = model.predict(X_valid)
+
+prediction[valid_mask] = y_pred.astype(np.float32)
+
+# =========================
+# 13. SAVE FINAL PREDICTION
+# =========================
+pred_profile = ref_profile.copy()
+pred_profile.update(dtype="float32", count=1, compress="lzw", nodata=np.nan)
+
+with rasterio.open(prediction_out, "w", **pred_profile) as dst:
+    dst.write(prediction, 1)
+
+print(f"✅ Prediction saved as: {prediction_out}")
