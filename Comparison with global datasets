@@ -1,0 +1,176 @@
+import os
+import numpy as np
+import rasterio
+from scipy.stats import ttest_rel, wilcoxon
+
+# =========================================================
+# COMPARE RF AGC WITH SIMARD AGC
+# =========================================================
+
+# ------------------------------------------------
+# 1. FILE PATHS
+# ------------------------------------------------
+rf_raster_path = "rf20_3var_resampled_to_simard30.tif"   # RF AGC raster already matched to Simard grid
+simard_raster_path = "mangrove_agb_simard_UTM49S.tif"    # Simard AGB raster
+
+output_dir = "model_scatter_plots"
+os.makedirs(output_dir, exist_ok=True)
+
+rf_agc_path = os.path.join(output_dir, "RF_AGC_30m2.tif")
+simard_agc_path = os.path.join(output_dir, "Simard_AGC_30m2.tif")
+difference_path = os.path.join(output_dir, "AGC_difference_Simard_minus_RF2.tif")
+difference_clipped_path = os.path.join(output_dir, "AGC_difference_Simard_minus_RF_clipped2.tif")
+
+nodata_value = -9999.0
+
+# ------------------------------------------------
+# 2. LOAD RF RASTER (ALREADY AGC)
+# ------------------------------------------------
+with rasterio.open(rf_raster_path) as rf_src:
+    rf_data = rf_src.read(1).astype(np.float32)
+    rf_nodata = rf_src.nodata
+    profile = rf_src.profile.copy()
+
+# Mask RF nodata
+if rf_nodata is not None:
+    rf_data[rf_data == rf_nodata] = np.nan
+
+# ------------------------------------------------
+# 3. LOAD SIMARD RASTER (AGB) AND CONVERT TO AGC
+# ------------------------------------------------
+with rasterio.open(simard_raster_path) as sim_src:
+    sim_data = sim_src.read(1).astype(np.float32)
+    sim_nodata = sim_src.nodata
+
+# Mask Simard nodata first
+if sim_nodata is not None:
+    sim_data[sim_data == sim_nodata] = np.nan
+
+# Convert AGB to AGC
+sim_agc = sim_data * 0.5
+
+# ------------------------------------------------
+# 4. SAVE RF AGC RASTER
+# ------------------------------------------------
+rf_output = np.where(np.isnan(rf_data), nodata_value, rf_data)
+
+rf_profile = profile.copy()
+rf_profile.update(
+    dtype=rasterio.float32,
+    nodata=nodata_value,
+    compress="lzw"
+)
+
+with rasterio.open(rf_agc_path, "w", **rf_profile) as dst:
+    dst.write(rf_output.astype(np.float32), 1)
+
+print(f"Saved RF AGC raster: {rf_agc_path}")
+
+# ------------------------------------------------
+# 5. SAVE SIMARD AGC RASTER
+# ------------------------------------------------
+simard_output = np.where(np.isnan(sim_agc), nodata_value, sim_agc)
+
+simard_profile = profile.copy()
+simard_profile.update(
+    dtype=rasterio.float32,
+    nodata=nodata_value,
+    compress="lzw"
+)
+
+with rasterio.open(simard_agc_path, "w", **simard_profile) as dst:
+    dst.write(simard_output.astype(np.float32), 1)
+
+print(f"Saved Simard AGC raster: {simard_agc_path}")
+
+# ------------------------------------------------
+# 6. COMPUTE DIFFERENCE RASTER
+#    Positive = Simard > RF
+#    Negative = Simard < RF
+# ------------------------------------------------
+diff_data = sim_agc - rf_data
+
+diff_output = np.where(np.isnan(diff_data), nodata_value, diff_data)
+
+diff_profile = profile.copy()
+diff_profile.update(
+    dtype=rasterio.float32,
+    nodata=nodata_value,
+    compress="lzw"
+)
+
+with rasterio.open(difference_path, "w", **diff_profile) as dst:
+    dst.write(diff_output.astype(np.float32), 1)
+
+print(f"Saved difference raster: {difference_path}")
+
+# ------------------------------------------------
+# 7. SAVE CLIPPED DIFFERENCE RASTER FOR LAYOUT ONLY
+# ------------------------------------------------
+diff_clipped = diff_data.copy()
+valid_display = ~np.isnan(diff_clipped)
+diff_clipped[valid_display] = np.clip(diff_clipped[valid_display], -100, 100)
+
+diff_clipped_output = np.where(np.isnan(diff_clipped), nodata_value, diff_clipped)
+
+with rasterio.open(difference_clipped_path, "w", **diff_profile) as dst:
+    dst.write(diff_clipped_output.astype(np.float32), 1)
+
+print(f"Saved clipped difference raster: {difference_clipped_path}")
+
+# ------------------------------------------------
+# 8. COMPUTE STATISTICS ON OVERLAPPING VALID PIXELS
+# ------------------------------------------------
+mask = (~np.isnan(rf_data)) & (~np.isnan(sim_agc))
+
+rf_clean = rf_data[mask]
+sim_clean = sim_agc[mask]
+diff_clean = diff_data[mask]
+
+print("Number of pixels compared:", len(rf_clean))
+
+# ------------------------------------------------
+# 9. STATISTICAL TESTS
+# ------------------------------------------------
+t_stat, p_value = ttest_rel(sim_clean, rf_clean)
+print("Paired t-test")
+print("t statistic:", t_stat)
+print("p value:", p_value)
+
+try:
+    w_stat, p_wil = wilcoxon(sim_clean, rf_clean)
+    print("\nWilcoxon signed-rank test")
+    print("W statistic:", w_stat)
+    print("p value:", p_wil)
+except ValueError as e:
+    print("\nWilcoxon test could not be calculated:", e)
+
+# ------------------------------------------------
+# 10. ERROR METRICS
+# ------------------------------------------------
+bias = np.mean(diff_clean)
+rmse = np.sqrt(np.mean(diff_clean ** 2))
+mae = np.mean(np.abs(diff_clean))
+
+print("\nComparison metrics")
+print("Mean difference (bias):", bias)
+print("RMSE:", rmse)
+print("MAE:", mae)
+
+# ------------------------------------------------
+# 11. RANGE CHECK FROM OVERLAPPING PIXELS ONLY
+# ------------------------------------------------
+print("\nRanges from overlapping valid pixels only")
+print("RF-derived AGC:", np.min(rf_clean), "-", np.max(rf_clean))
+print("Simard AGC:", np.min(sim_clean), "-", np.max(sim_clean))
+print("Difference AGC:", np.min(diff_clean), "-", np.max(diff_clean))
+
+# ------------------------------------------------
+# 12. INTERPRETATION
+# ------------------------------------------------
+if bias > 0:
+    print("\nInterpretation: Simard predicts higher AGC than RF on average.")
+elif bias < 0:
+    print("\nInterpretation: Simard predicts lower AGC than RF on average.")
+else:
+    print("\nInterpretation: Simard and RF predict the same AGC on average.")
